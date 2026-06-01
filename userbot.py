@@ -8,15 +8,18 @@ from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 
-# Muhit o'zgaruvchilarini tekshirish
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-if not BOT_TOKEN:
-    print("BOT_TOKEN muhit o'zgaruvchisi yo'q!")
+# ========== TOKEN VA ADMIN ID NI SHU YERGA KIRITING ==========
+BOT_TOKEN = '8458434487:AAFaCK8kvCGs2-5GZc24cHv31FaLg_-ik4c'  # BotFather'dan olgan tokeningiz
+ADMIN_ID = 6850166021                   # O'zingizning Telegram ID'ingiz
+# ============================================================
+
+# Tokenni tekshirish
+if not BOT_TOKEN or BOT_TOKEN == '8458434487:AAFaCK8kvCGs2-5GZc24cHv31FaLg_-ik4c':
+    print("Iltimos, BOT_TOKEN ni o'zgartiring!")
     sys.exit(1)
 
-ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
-if not ADMIN_ID:
-    print("ADMIN_ID muhit o'zgaruvchisi yo'q!")
+if not ADMIN_ID or ADMIN_ID == 6850166021:
+    print("Iltimos, ADMIN_ID ni o'zgartiring!")
     sys.exit(1)
 
 # JSON sessiya fayli
