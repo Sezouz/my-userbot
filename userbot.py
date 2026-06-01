@@ -1,17 +1,25 @@
-import import os
+import os
+import sys
 import json
 import asyncio
 import threading
+from flask import Flask
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
-from flask import Flask
 
-# ========== MUHIT O‘ZGARUVCHILARI ==========
+# Muhit o'zgaruvchilarini tekshirish
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
+if not BOT_TOKEN:
+    print("BOT_TOKEN muhit o'zgaruvchisi yo'q!")
+    sys.exit(1)
 
-# ========== SESSIYALARNI JSONDA SAQLASH ==========
+ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
+if not ADMIN_ID:
+    print("ADMIN_ID muhit o'zgaruvchisi yo'q!")
+    sys.exit(1)
+
+# JSON sessiya fayli
 STATE_FILE = '/tmp/userbot_state.json'
 
 def load_state():
@@ -26,40 +34,40 @@ def save_state(data):
 
 state = load_state()
 
-# ========== BOT KLIENT ==========
+# Bot klienti
 bot = TelegramClient('bot_session', api_id=2040, api_hash='b18441a1ff607e10a989891a5462e627')
 bot.start(bot_token=BOT_TOKEN)
 
-# ========== INLINE MENU ==========
+# Inline menyu
 MAIN_MENU = [
-    [Button.inline('➕ Akkaunt qo‘shish', 'add_account')],
-    [Button.inline('📋 Akkauntlar ro‘yxati', 'list_accounts')],
+    [Button.inline('➕ Akkaunt qo\'shish', 'add_account')],
+    [Button.inline('📋 Akkauntlar ro\'yxati', 'list_accounts')],
 ]
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.reply('⛔ Ruxsat yo‘q')
+        await event.reply('⛔ Ruxsat yo\'q')
         return
     await event.respond('🤖 **Userbot Manager**\nTanlang:', buttons=MAIN_MENU)
 
 @bot.on(events.CallbackQuery)
 async def callback_handler(event):
     if event.sender_id != ADMIN_ID:
-        await event.answer('Ruxsat yo‘q', alert=True)
+        await event.answer('Ruxsat yo\'q', alert=True)
         return
     data = event.data.decode('utf-8')
     chat_id = event.chat_id
 
     if data == 'add_account':
-        await event.edit('Akkaunt qo‘shish uchun **api_id** va **api_hash** ni quyidagi formatda yuboring:\n`123456 abcdef123456`')
+        await event.edit('Akkaunt qo\'shish uchun **api_id** va **api_hash** ni quyidagi formatda yuboring:\n`123456 abcdef123456`')
         state['states'][chat_id] = 'waiting_app'
         save_state(state)
 
     elif data == 'list_accounts':
         accs = state.get('accounts', [])
         if not accs:
-            await event.edit('Hozircha akkaunt yo‘q.', buttons=MAIN_MENU)
+            await event.edit('Hozircha akkaunt yo\'q.', buttons=MAIN_MENU)
             return
         text = '📋 **Akkauntlar:**\n'
         btns = []
@@ -82,54 +90,56 @@ async def callback_handler(event):
 
     await event.answer()
 
-# ========== MATNLI KIRISH ==========
+# Matnli kiritishlar
 @bot.on(events.NewMessage(func=lambda e: e.sender_id == ADMIN_ID and not e.text.startswith('/')))
 async def handle_text(event):
     chat_id = event.chat_id
     text = event.text.strip()
     user_state = state['states'].get(chat_id)
-
     if not user_state:
         return
 
-    # --- API_ID/API_HASH ---
     if user_state == 'waiting_app':
         parts = text.split()
         if len(parts) != 2:
             await event.reply('❌ `123456 abcdef123456` formatida yuboring')
             return
-        api_id = int(parts[0])
+        try:
+            api_id = int(parts[0])
+        except ValueError:
+            await event.reply('❌ API ID raqam bo\'lishi kerak')
+            return
         api_hash = parts[1]
         state['temp'][chat_id] = {'api_id': api_id, 'api_hash': api_hash}
         state['states'][chat_id] = 'waiting_phone'
         save_state(state)
-        await event.reply('📱 Telefon raqamini yuboring (+998...)')
+        await event.reply('📱 Telefon raqamini xalqaro formatda yuboring (+998...)')
 
-    # --- TELEFON RAQAM → KOD SO‘RASH ---
     elif user_state == 'waiting_phone':
         phone = text
         temp = state['temp'].get(chat_id, {})
         api_id = temp.get('api_id')
         api_hash = temp.get('api_hash')
-        client = TelegramClient(StringSession(), api_id, api_hash)
-        await client.connect()
+        if not api_id or not api_hash:
+            await event.reply('Avval API ma\'lumotlarni kiriting. /start')
+            return
         try:
+            client = TelegramClient(StringSession(), api_id, api_hash)
+            await client.connect()
             await client.send_code_request(phone)
         except Exception as e:
-            await event.reply(f'❌ {e}')
+            await event.reply(f'❌ Xatolik: {e}')
             del state['states'][chat_id]
             save_state(state)
             return
         state['temp'][chat_id].update({
             'client_session': client.session.save(),
-            'phone': phone,
-            'client': client
+            'phone': phone
         })
         state['states'][chat_id] = 'waiting_code'
         save_state(state)
-        await event.reply('📞 Kod so‘raldi. Kodni yuboring:')
+        await event.reply('📞 Kod so\'raldi. Iltimos, telefoningizga kelgan kodni yuboring:')
 
-    # --- KOD BILAN KIRISH ---
     elif user_state == 'waiting_code':
         code = text
         temp = state['temp'].get(chat_id, {})
@@ -137,17 +147,25 @@ async def handle_text(event):
         phone = temp.get('phone')
         api_id = temp.get('api_id')
         api_hash = temp.get('api_hash')
-        client = TelegramClient(StringSession(sess_str), api_id, api_hash)
-        await client.connect()
+        if not sess_str:
+            await event.reply('Xatolik: sessiya topilmadi. /start')
+            return
         try:
+            client = TelegramClient(StringSession(sess_str), api_id, api_hash)
+            await client.connect()
             await client.sign_in(phone, code)
         except SessionPasswordNeededError:
-            await event.reply('Ikki bosqichli parol kerak. Yuboring:')
+            await event.reply('Ikki bosqichli tekshiruv paroli kerak. Uni yuboring:')
             state['states'][chat_id] = 'waiting_password'
             save_state(state)
             return
         except PhoneCodeInvalidError:
-            await event.reply('❌ Kod xato')
+            await event.reply('❌ Kod noto\'g\'ri yoki muddati o\'tgan.')
+            del state['states'][chat_id]
+            save_state(state)
+            return
+        except Exception as e:
+            await event.reply(f'❌ Xatolik: {e}')
             del state['states'][chat_id]
             save_state(state)
             return
@@ -163,21 +181,23 @@ async def handle_text(event):
         del state['states'][chat_id]
         del state['temp'][chat_id]
         save_state(state)
-        await event.reply(f'✅ Akkaunt ulandi: {me.first_name}', buttons=MAIN_MENU)
+        await event.reply(f'✅ Akkaunt muvaffaqiyatli ulandi!\nIsm: {me.first_name}\nTelefon: {phone}', buttons=MAIN_MENU)
 
-    # --- IKKI BOSQICHLI PAROL ---
     elif user_state == 'waiting_password':
         password = text
         temp = state['temp'].get(chat_id, {})
         sess_str = temp.get('client_session')
         api_id = temp.get('api_id')
         api_hash = temp.get('api_hash')
-        client = TelegramClient(StringSession(sess_str), api_id, api_hash)
-        await client.connect()
+        if not sess_str:
+            await event.reply('Xatolik: sessiya topilmadi.')
+            return
         try:
+            client = TelegramClient(StringSession(sess_str), api_id, api_hash)
+            await client.connect()
             await client.sign_in(password=password)
         except Exception as e:
-            await event.reply(f'❌ {e}')
+            await event.reply(f'❌ Xatolik: {e}')
             del state['states'][chat_id]
             save_state(state)
             return
@@ -193,18 +213,16 @@ async def handle_text(event):
         del state['states'][chat_id]
         del state['temp'][chat_id]
         save_state(state)
-        await event.reply(f'✅ Akkaunt ulandi: {me.first_name}', buttons=MAIN_MENU)
+        await event.reply(f'✅ Akkaunt ulandi!\nIsm: {me.first_name}', buttons=MAIN_MENU)
 
-    # --- QAYTA LOGIN (RELOGIN) ---
+    # Qayta login
     elif isinstance(user_state, dict) and user_state.get('action') == 'relogin_phone':
         phone = text
         idx = user_state['idx']
         acc = state['accounts'][idx]
-        api_id = acc['api_id']
-        api_hash = acc['api_hash']
-        client = TelegramClient(StringSession(acc['session']), api_id, api_hash)
-        await client.connect()
         try:
+            client = TelegramClient(StringSession(acc['session']), acc['api_id'], acc['api_hash'])
+            await client.connect()
             await client.send_code_request(phone)
         except Exception as e:
             await event.reply(f'❌ {e}')
@@ -212,7 +230,7 @@ async def handle_text(event):
         state['temp'][chat_id] = {'client': client, 'phone': phone, 'idx': idx}
         state['states'][chat_id] = {'action': 'relogin_code', 'idx': idx}
         save_state(state)
-        await event.reply('📞 Kod so‘raldi. Kodni yuboring:')
+        await event.reply('📞 Kod so\'raldi. Kodni yuboring:')
 
     elif isinstance(user_state, dict) and user_state.get('action') == 'relogin_code':
         code = text
@@ -223,9 +241,12 @@ async def handle_text(event):
         try:
             await client.sign_in(phone, code)
         except SessionPasswordNeededError:
-            await event.reply('Parolni yuboring:')
+            await event.reply('Ikki bosqichli parolni yuboring:')
             state['states'][chat_id] = {'action': 'relogin_password', 'idx': idx}
             save_state(state)
+            return
+        except Exception as e:
+            await event.reply(f'❌ {e}')
             return
         me = await client.get_me()
         state['accounts'][idx]['session'] = client.session.save()
@@ -235,7 +256,7 @@ async def handle_text(event):
         save_state(state)
         await event.reply(f'✅ Akkaunt yangilandi: {me.first_name}', buttons=MAIN_MENU)
 
-# ========== FLASK ==========
+# Flask server
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -243,7 +264,8 @@ def home():
     return 'Userbot ishlamoqda'
 
 def run_flask():
-    flask_app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get('PORT', 10000))
+    flask_app.run(host='0.0.0.0', port=port)
 
 async def main():
     await bot.start()
